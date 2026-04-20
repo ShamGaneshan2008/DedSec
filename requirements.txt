@@ -1,5 +1,16 @@
-SpeechRecognition
-pyttsx3
-pyaudio
-requests
-python-dotenv
+# Core AI
+groq==0.11.0
+python-dotenv==1.0.1
+
+# Voice Input (Speech Recognition)
+SpeechRecognition==3.10.1
+pyaudio==0.2.14
+
+# Text-to-Speech
+pyttsx3==2.90
+
+# Audio playback (used by voice systems)
+pygame==2.6.1
+
+# Optional (better performance / stability)
+requests==2.32.3

@@ -1,68 +1,36 @@
-from marcus.commands import system, web, files
-from marcus.core.ai import ask_ai
-from marcus.core.memory import save_exchange
+from marcus.commands import files, system, web
+from marcus.commands import extras
 
+class Router:
+    def __init__(self, ai, memory, speech=None):
+        self.ai = ai
+        self.memory = memory
+        self.speech = speech  # passed so timer can speak when it fires
 
-def route_command(command: str) -> str:
-    cmd = command.lower()
+    def handle(self, text: str) -> str:
+        lower = text.lower()
 
-    # =========================
-    # 🖥️ SYSTEM COMMANDS
-    # =========================
-    if "open notepad" in cmd:
-        return system.open_notepad()
+        # --- Extra commands (weather, timer, joke, spotify, battery, screenshot) ---
+        result = extras.handle(text, speech=self.speech)
+        if result is not None:
+            return result
 
-    elif "shutdown" in cmd:
-        return system.shutdown()
+        # --- File commands ---
+        if any(k in lower for k in ["open file", "read file", "list files", "show files"]):
+            return files.handle(text)
 
-    elif "restart" in cmd:
-        return system.restart()
+        # --- System commands ---
+        if any(k in lower for k in ["shutdown", "restart", "volume"]):
+            return system.handle(text)
 
-    elif "open " in cmd and any(x in cmd for x in ["app", "program"]):
-        return system.open_app(cmd)
+        # --- Web commands ---
+        if any(k in lower for k in ["search", "look up", "google", "what is", "who is", "news"]):
+            return web.handle(text)
 
-    # =========================
-    # 🌐 WEB COMMANDS
-    # =========================
-    elif "open google" in cmd:
-        return web.open_google()
+        # --- Memory commands ---
+        if any(k in lower for k in ["clear memory", "wipe memory", "forget everything"]):
+            self.memory.clear()
+            return "Memory wiped clean. Like it never happened."
 
-    elif "open youtube" in cmd:
-        return web.open_youtube()
-
-    elif "search" in cmd:
-        query = cmd.replace("search", "").strip()
-        return web.search_google(query)
-
-    elif any(x in cmd for x in ["go to", "visit", "open website"]):
-        return web.open_website(cmd)
-
-    # =========================
-    # 📁 FILE COMMANDS
-    # =========================
-    elif "list files" in cmd:
-        return files.list_files()
-
-    elif "open file" in cmd:
-        return files.open_file(cmd)
-
-    elif "delete file" in cmd:
-        return files.delete_file(cmd)
-
-    elif any(x in cmd for x in ["create file", "make file"]):
-        return files.create_file(cmd)
-
-    # =========================
-    # 🧠 MEMORY COMMANDS
-    # =========================
-    elif "clear memory" in cmd:
-        from marcus.core.memory import clear_memory
-        return clear_memory()
-
-    # =========================
-    # 🤖 AI FALLBACK
-    # =========================
-    else:
-        response = ask_ai(command)
-        save_exchange(command, response)
-        return response
+        # --- Default: AI ---
+        return self.ai.chat(text)
