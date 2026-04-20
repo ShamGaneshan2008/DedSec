@@ -1,23 +1,41 @@
 import json
 import os
+from marcus.config import MEMORY_FILE, MEMORY_LIMIT
 
-MEMORY_FILE = "data/memory.json"
 
-def load_memory():
+def _load_memory() -> list:
     if not os.path.exists(MEMORY_FILE):
         return []
     with open(MEMORY_FILE, "r") as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
 
-def save_memory(memory):
+
+def _save_memory(data: list):
+    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
     with open(MEMORY_FILE, "w") as f:
-        json.dump(memory, f, indent=2)
+        json.dump(data, f, indent=2)
 
-def add_memory(user, ai):
-    memory = load_memory()
-    memory.append({"user": user, "ai": ai})
-    save_memory(memory)
 
-def get_recent_memory(limit=5):
-    memory = load_memory()
-    return memory[-limit:]
+def get_recent_memory() -> list:
+    """Return the last N exchanges for AI context."""
+    memory = _load_memory()
+    return memory[-MEMORY_LIMIT:]
+
+
+def save_exchange(user_input: str, ai_response: str):
+    """Append a user/AI exchange to memory."""
+    memory = _load_memory()
+    memory.append({
+        "user": user_input,
+        "ai": ai_response
+    })
+    _save_memory(memory)
+
+
+def clear_memory():
+    """Wipe all memory."""
+    _save_memory([])
+    return "Memory cleared."

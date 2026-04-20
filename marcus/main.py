@@ -1,6 +1,6 @@
-from marcus.utils.listener import listen
-from marcus.utils.speech import speak
-from marcus.core.router import route_command
+from marcus import listen
+from marcus import speak
+from marcus import route_command
 
 
 def main():

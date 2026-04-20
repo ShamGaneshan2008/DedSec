@@ -1,4 +1,4 @@
-from marcus.main import main
+from marcus import main
 
 if __name__ == "__main__":
     main()

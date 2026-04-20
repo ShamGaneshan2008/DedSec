@@ -1,20 +1,9 @@
-import os
 import requests
-from dotenv import load_dotenv
-from marcus.core.memory import get_recent_memory
+from marcus import GROQ_API_KEY, GROQ_URL, GROQ_MODEL, MAX_TOKENS, SYSTEM_PROMPT
+from marcus import get_recent_memory
 
-load_dotenv()
 
-API_KEY = os.getenv("GROQ_API_KEY")
-URL = "https://api.groq.com/openai/v1/chat/completions"
-
-SYSTEM_PROMPT = """
-You are Marcus, a smart, friendly AI assistant.
-You speak naturally like a human and help with tasks.
-Keep answers clear and concise.
-"""
-
-def ask_ai(prompt):
+def ask_ai(prompt: str) -> str:
     memory = get_recent_memory()
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -26,16 +15,21 @@ def ask_ai(prompt):
     messages.append({"role": "user", "content": prompt})
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
     data = {
-        "model": "llama-3.1-8b-instant",
+        "model": GROQ_MODEL,
         "messages": messages,
-        "max_tokens": 500
+        "max_tokens": MAX_TOKENS
     }
 
-    response = requests.post(URL, headers=headers, json=data)
-
-    return response.json()["choices"][0]["message"]["content"]
+    try:
+        response = requests.post(GROQ_URL, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except requests.exceptions.RequestException as e:
+        return f"Network error: {e}"
+    except (KeyError, IndexError):
+        return "Marcus couldn't process that. Try again."
