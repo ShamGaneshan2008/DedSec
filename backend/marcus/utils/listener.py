@@ -27,9 +27,18 @@ IDLE_CHECKINS      = ["You still there?", "Still with me?", "Did you need someth
 GOODBYE_RESPONSES  = ["Later.", "Got it, going quiet.", "I'll be around.", "Alright, stepping back."]
 BARGE_IN_ACK       = ["Sure, go ahead.", "Yeah?", "What's up?", "I'm listening."]
 
-MIC_INDEX        = 2
+
 BARGE_IN_RMS     = 800    # tune: run calibration below if unsure
 FILLER_MIN_DELAY = 0.8
+
+def get_mic():
+    names = sr.Microphone.list_microphone_names()
+    for i, name in enumerate(names):
+        if "jlab" in name.lower() and "headset" in name.lower():
+            return i
+    return 0
+
+MIC_INDEX = get_mic()
 
 
 class Listener:
@@ -251,15 +260,18 @@ class Listener:
     def _listen_once(self, timeout=5, phrase_limit=10):
         try:
             with sr.Microphone(device_index=MIC_INDEX) as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.3)
                 audio = self.recognizer.listen(
                     source, timeout=timeout, phrase_time_limit=phrase_limit
                 )
             return audio
+
         except sr.WaitTimeoutError:
             return None
+
         except Exception as e:
-            print(f"[MARCUS] Mic error: {e}")
-            time.sleep(0.3)
+            print(f"[MARCUS] Mic error (device {MIC_INDEX}): {e}")
+            time.sleep(0.5)
             return None
 
     def _transcribe(self, audio) -> str | None:
@@ -327,7 +339,7 @@ class Listener:
 
 def DEBUG_ON():
     try:
-        from backend.marcus.config import DEBUG
+        from backend.marcus.config import DEBUG  # FIXED: correct import path
         return DEBUG
     except Exception:
         return False

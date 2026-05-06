@@ -17,22 +17,40 @@ from backend.marcus.config import (
 
 
 class Speech:
-    def __init__(self):
+    def __init__(self, subtitle_callback=None):
+        """
+        Initialize Speech engine with optional subtitle callback.
+
+        Args:
+            subtitle_callback: Optional function(text: str) called when text is spoken.
+                              Used to update subtitles in real-time.
+        """
         self.api_key = ELEVEN_API_KEY
         self.voice_id = VOICE_ID or "pNInz6obpgDQGcFmaJgB"
         self._edge_voice = "en-US-GuyNeural"
         self._stop_flag = False
-        self.is_speaking = False          # True while audio is playing
+        self.is_speaking = False  # True while audio is playing
+        self.subtitle_callback = subtitle_callback  # NEW: Callback for subtitles
 
         os.environ["SDL_AUDIODRIVER"] = "directsound"
         pygame.mixer.pre_init(44100, -16, 2, 512)
         pygame.mixer.init()
 
     def speak(self, text: str):
+        """Speak the given text and trigger subtitle callback."""
         if not text.strip():
             return
         self._stop_flag = False
         self.is_speaking = True
+
+        # Trigger subtitle callback
+        if self.subtitle_callback:
+            try:
+                self.subtitle_callback(text)
+            except Exception as e:
+                if DEBUG:
+                    print(f"[{ASSISTANT_NAME}] Subtitle callback error: {e}")
+
         try:
             if self.api_key:
                 if self._elevenlabs(text):
@@ -45,6 +63,7 @@ class Speech:
         """
         Streams tokens → sentences → audio.
         Respects _stop_flag at every stage for instant barge-in.
+        NEW: Triggers subtitle callback for each sentence.
         """
         self._stop_flag = False
         self.is_speaking = True
@@ -82,6 +101,15 @@ class Speech:
                         except Exception:
                             break
                     break
+
+                # NEW: Trigger subtitle callback for each sentence
+                if self.subtitle_callback:
+                    try:
+                        self.subtitle_callback(sentence)
+                    except Exception as e:
+                        if DEBUG:
+                            print(f"[{ASSISTANT_NAME}] Subtitle callback error: {e}")
+
                 if self.api_key:
                     if self._elevenlabs(sentence):
                         continue
@@ -101,9 +129,11 @@ class Speech:
         self.is_speaking = False
 
     def speak_chunked(self, text: str):
+        """Speak text in chunks (delegates to speak)."""
         self.speak(text)
 
     def _elevenlabs(self, text: str) -> bool:
+        """Generate and play speech using ElevenLabs API."""
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
         headers = {
             "xi-api-key": self.api_key,
@@ -111,11 +141,11 @@ class Speech:
         }
         data = {
             "text": text,
-            "model_id": "eleven_turbo_v2",
+            "model_id": "eleven_turbo_v2_5",
             "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.85,
-                "style": 0.3,
+                "stability": 0.40,
+                "similarity_boost": 0.75,
+                "style": 0.35,
                 "use_speaker_boost": True
             }
         }
@@ -145,6 +175,7 @@ class Speech:
             return False
 
     def _edge_tts(self, text: str):
+        """Generate and play speech using Edge TTS (fallback)."""
         try:
             import edge_tts
 
@@ -177,6 +208,7 @@ class Speech:
             self._pyttsx3_fallback(text)
 
     def _pyttsx3_fallback(self, text: str):
+        """Final fallback using pyttsx3 (offline TTS)."""
         try:
             import pyttsx3
             engine = pyttsx3.init()
@@ -195,3 +227,12 @@ class Speech:
             pygame.mixer.music.stop()
         except Exception:
             pass
+
+    def set_subtitle_callback(self, callback):
+        """
+        Set or update the subtitle callback function.
+
+        Args:
+            callback: Function(text: str) to be called when text is spoken.
+        """
+        self.subtitle_callback = callback
