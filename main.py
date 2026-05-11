@@ -60,6 +60,30 @@ def _patch_router_env(name: str):
     os.environ["MARCUS_USER_NAME"] = name
 
 
+def _check_mic(device_index: int) -> bool:
+    """Check mic using the SAME device index Listener will use."""
+    try:
+        import speech_recognition as sr
+        with sr.Microphone(device_index=device_index) as source:
+            pass
+        return True
+    except Exception as e:
+        print(f"[MARCUS] Mic check failed (device {device_index}): {e}")
+        return False
+
+
+def _get_mic_index() -> int:
+    """Mirror the same logic as listener.py get_mic()."""
+    try:
+        import speech_recognition as sr
+        for i, name in enumerate(sr.Microphone.list_microphone_names()):
+            if "jlab" in name.lower() and "headset" in name.lower():
+                return i
+    except Exception:
+        pass
+    return 0
+
+
 def main():
     print("""
     ███╗   ███╗ █████╗ ██████╗  ██████╗██╗   ██╗███████╗
@@ -75,19 +99,15 @@ def main():
     _patch_router_env(user_name)
 
     memory = Memory()
-    ai = AI(memory)
+    ai     = AI(memory)
+
+    # Resolve mic index first — before Speech initializes pygame/SDL
+    mic_index     = _get_mic_index()
+    mic_available = _check_mic(mic_index)
+
+    # Speech init AFTER mic check — pygame mixer can interfere with PyAudio on Windows
     speech = Speech()
     router = Router(ai, memory, speech=speech)
-
-    mic_available = False
-    try:
-        import speech_recognition as sr
-        test_mic = sr.Microphone()
-        with test_mic as source:
-            pass
-        mic_available = True
-    except Exception as e:
-        print(f"[MARCUS] Mic check failed: {e}")
 
     if mic_available:
         from backend.marcus.utils.listener import Listener
@@ -145,27 +165,23 @@ if __name__ == "__main__":
             _patch_router_env(user_name)
 
             memory = Memory()
-            ai = AI(memory)
+            ai     = AI(memory)
             speech = Speech()
             router = Router(ai, memory, speech=speech)
 
-            # Expand shortcuts before routing
             from backend.marcus import resolve as expand_shortcut, handle_meta_command
             handled, meta_response = handle_meta_command(cmd)
             if handled:
                 print(meta_response, flush=True)
                 sys.exit(0)
 
-            cmd = expand_shortcut(cmd)
-
-            # Check if it's an AI response (stream) or a command (string)
+            cmd    = expand_shortcut(cmd)
             result = router.handle_stream(cmd)
 
             if hasattr(result, '__iter__') and not isinstance(result, str):
-                # Stream tokens one by one — GUI reads these char by char
                 for token in result:
                     print(token, end="", flush=True)
-                print()  # final newline
+                print()
             else:
                 print(result, flush=True)
         else:

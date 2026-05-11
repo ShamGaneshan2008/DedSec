@@ -4,245 +4,79 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Marcus AI</title>
-
-<style>
-body {
-  overflow: hidden;
-  width: 100vw;
-  height: 100vh;
-  background: #000;
-  perspective: 1000px;
-  margin: 0;
-}
-
-/* SPHERE */
-.sphere {
-  display: block;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border-radius: 100%;
-  transform: translate(-50%, -50%);
-  width: 200px;
-  height: 200px;
-  background: rgba(0, 0, 0, 0.15);
-  backdrop-filter: blur(5px);
-  box-shadow:
-    0 0 50px 5px rgba(0, 0, 0, 0.5),
-    inset 0 0 40px rgba(255, 255, 255, 0.5),
-    inset 0 -20px 50px rgba(0, 0, 0, 0.2);
-  z-index: 50;
-  overflow: hidden;
-  animation: float 6s ease-in-out infinite;
-}
-
-/* 👀 EYES (THIS WAS MISSING BEFORE) */
-.sphere::before {
-  content: '';
-  position: absolute;
-  top: 45%;
-  left: 47%;
-  transform: translate(-50%, -50%);
-  width: 10px;
-  height: 30px;
-  background: white;
-  border-radius: 3px;
-  box-shadow: 30px 0 0 white;
-  z-index: 60;
-  animation: blink 4s infinite, lookAround 10s infinite ease-in-out;
-}
-
-/* GLOW */
-.sphere::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  box-shadow:
-    0 0 40px rgba(255, 255, 255, 0.1),
-    0 0 80px rgba(0, 150, 255, 0.2),
-    0 0 120px rgba(255, 0, 200, 0.15);
-  animation: glowPulse 2s ease-in-out infinite;
-}
-
-/* LAVA */
-.lava {
-  filter: blur(25px);
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border-radius: 100%;
-  transform: translate(-50%, -50%);
-  width: 190px;
-  height: 190px;
-  z-index: 10;
-  mix-blend-mode: screen;
-  animation: colorShift 20s linear infinite;
-}
-
-.lava::before {
-  content: '';
-  position: absolute;
-  width: 120%;
-  height: 120%;
-  background:
-    radial-gradient(circle at 30% 30%, #0066ff, transparent),
-    radial-gradient(circle at 70% 30%, #ff00cc, transparent),
-    radial-gradient(circle at 50% 60%, #00ff99, transparent),
-    radial-gradient(circle at 80% 40%, #ff3300, transparent);
-  filter: blur(8px);
-}
-
-.lava::after {
-  content: '';
-  position: absolute;
-  width: 120%;
-  height: 120%;
-  background:
-    radial-gradient(circle at 40% 40%, #0066ff, transparent),
-    radial-gradient(circle at 60% 40%, #ff00cc, transparent),
-    radial-gradient(circle at 50% 70%, #00ff99, transparent),
-    radial-gradient(circle at 70% 50%, #ff3300, transparent);
-  filter: blur(12px);
-  animation: pulse 4s infinite alternate;
-}
-
-/* TEXT */
-.text-container {
-  position: absolute;
-  bottom: 25%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
-  text-align: center;
-}
-
-.floating-text {
-  color: rgba(255,255,255,0.8);
-  font-size: 1.8em;
-  opacity: 0;
-  transition: 0.5s;
-}
-
-/* WAVES */
-.wave-container {
-  position: absolute;
-  bottom: 10%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 300px;
-  height: 60px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 3px;
-}
-
-.wave {
-  width: 2px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.5);
-  animation: wave 0.5s ease-in-out infinite;
-  border-radius: 2px;
-}
-
-@keyframes wave {
-  0%, 100% {
-    height: calc(5px + (var(--i) * 2px));
-    background: rgba(255, 255, 255, 0.2);
-  }
-  50% {
-    height: calc(15px + (var(--i) * 3px));
-    background: rgba(255, 255, 255, 0.8);
-  }
-}
-
-/* ANIMATIONS */
-@keyframes wave {
-  0%,100% { height: 10px; }
-  50% { height: 40px; }
-}
-
-@keyframes float {
-  0%,100% { transform: translate(-50%, -50%); }
-  50% { transform: translate(-50%, calc(-50% - 10px)); }
-}
-
-@keyframes colorShift {
-  0% { filter: blur(25px) hue-rotate(0deg); }
-  100% { filter: blur(25px) hue-rotate(360deg); }
-}
-
-@keyframes glowPulse {
-  0%,100% { box-shadow: 0 0 60px rgba(255,255,255,0.1); }
-  50% { box-shadow: 0 0 80px rgba(255,255,255,0.2); }
-}
-
-@keyframes blink {
-  0%,96% { height: 30px; }
-  98% { height: 3px; }
-  100% { height: 30px; }
-}
-
-@keyframes lookAround {
-  0%,40% { left:47%; }
-  50% { left:40%; }
-  60% { left:54%; }
-  75% { left:47%; }
-}
-
-@keyframes pulse {
-  0% { transform: scale(1); }
-  100% { transform: scale(1.15); }
-}
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-<div class="lava"></div>
-<div class="sphere"></div>
+<!-- Header -->
+<header class="header">
+  <div class="logo">Marcus <span>AI</span></div>
+  <div class="status-pill">
+    <div class="sdot"></div>
+    <span id="statusLabel">Ready</span>
+  </div>
+</header>
 
-<div class="text-container">
-  <div class="floating-text"></div>
+<!-- Lava blob (colour spectrum) -->
+<div class="lava" id="lava"></div>
+
+<!-- Listening rings -->
+<div class="rings" id="rings">
+  <div class="ring"></div>
+  <div class="ring"></div>
+  <div class="ring"></div>
 </div>
 
-<div class="wave-container"></div>
+<!-- Glass sphere with eyes -->
+<div class="sphere" id="sphere"></div>
 
-<script>
-document.addEventListener("DOMContentLoaded", () => {
+<!-- Label under orb -->
+<div class="orb-label" id="orbLabel"></div>
 
-  const text = document.querySelector(".floating-text");
-  const waveContainer = document.querySelector(".wave-container");
+<!-- Waveform bars -->
+<div class="waveform" id="waveform"></div>
 
-  const messages = [
-    "Hello there! My name is MarcusAI.",
-    "How are you?",
-    "Let's talk!",
-    "I'm here to help."];
+<!-- Voice transcript -->
+<div class="transcript" id="transcript"></div>
 
-  function showText(msg){
-    text.style.opacity = 0;
-    setTimeout(()=>{
-      text.textContent = msg;
-      text.style.opacity = 1;
-    },300);
-  }
+<!-- Voice controls -->
+<div class="controls" id="controls">
+  <button class="mic-btn" id="micBtn" title="Tap to speak">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M5 10a7 7 0 0 0 14 0"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+      <line x1="9" y1="22" x2="15" y2="22"/>
+    </svg>
+  </button>
+  <div class="mode-toggle">
+    <button class="mtab active" id="btnVoice" onclick="setMode('voice')">Voice</button>
+    <button class="mtab"        id="btnChat"  onclick="setMode('chat')">Chat</button>
+  </div>
+</div>
 
-  setInterval(()=>{
-    showText(messages[Math.floor(Math.random()*messages.length)]);
-  },4000);
+<!-- Chat panel -->
+<div class="chat-panel" id="chatPanel">
+  <div class="divider-line"></div>
+  <div class="messages" id="messages">
+    <div class="typing" id="typing">
+      <div class="tdot"></div><div class="tdot"></div><div class="tdot"></div>
+    </div>
+  </div>
+  <div class="input-row">
+    <input class="chat-input" id="chatInput" type="text" placeholder="Message Marcus…" autocomplete="off"/>
+    <button class="send-btn" id="sendBtn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </div>
+</div>
 
-  // Waves
-  for(let i=0;i<60;i++){
-    let w=document.createElement("div");
-    w.className="wave";
-    w.style.animationDelay=Math.random()+"s";
-    waveContainer.appendChild(w);
-  }
-
-});
-</script>
-
+<script src="app.js"></script>
 </body>
 </html>

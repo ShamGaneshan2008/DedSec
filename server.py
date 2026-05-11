@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import webbrowser
 import sys
@@ -44,21 +45,16 @@ def get_user_name() -> str:
 
 # ── GLOBALS ───────────────────────────────────────────────────────────
 current_websocket = None
-main_loop = None  # 🔥 IMPORTANT: shared loop for threads
+main_loop = None
 
-# ── SUBTITLE CALLBACK (FIXED) ─────────────────────────────────────────
+# ── SUBTITLE CALLBACK ─────────────────────────────────────────────────
 def subtitle_callback(text: str):
     global current_websocket, main_loop
-
     if not current_websocket or not main_loop:
         return
-
     try:
         asyncio.run_coroutine_threadsafe(
-            current_websocket.send_json({
-                "type": "subtitle",
-                "text": text
-            }),
+            current_websocket.send_json({"type": "subtitle", "text": text}),
             main_loop
         )
     except Exception as e:
@@ -80,27 +76,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── SERVE FRONTEND ────────────────────────────────────────────────────
+# ── FRONTEND DIR ──────────────────────────────────────────────────────
 if getattr(sys, 'frozen', False):
-    BASE_DIR = Path(sys._MEIPASS)
+    FRONTEND_DIR = Path(sys._MEIPASS) / "frontend"
 else:
-    BASE_DIR = Path(__file__).resolve().parent
+    FRONTEND_DIR = BASE_DIR / "frontend"
 
-FRONTEND_DIR = BASE_DIR / "frontend"
+# ── SERVE STATIC FILES (css, js, images, etc.) ───────────────────────
+app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
+# ── SERVE INDEX ───────────────────────────────────────────────────────
 @app.get("/")
 def home():
-    path = FRONTEND_DIR / "index.html"
-    if not path.exists():
-        path = Path("frontend/index.html")
-    return FileResponse(path)
+    return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+@app.get("/app.js")
+def serve_js():
+    return FileResponse(str(FRONTEND_DIR / "app.js"), media_type="application/javascript")
+
+@app.get("/style.css")
+def serve_css():
+    return FileResponse(str(FRONTEND_DIR / "style.css"), media_type="text/css")
 
 @app.get("/favicon.ico")
 def favicon():
-    icon_path = os.path.join(FRONTEND_DIR, "favicon.ico")
-    if os.path.exists(icon_path):
-        return FileResponse(icon_path)
-    return {"status": "no favicon"}
+    icon_path = FRONTEND_DIR / "favicon.ico"
+    if icon_path.exists():
+        return FileResponse(str(icon_path))
+    return JSONResponse({"status": "no favicon"})
 
 # ── REST CHAT ─────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
@@ -112,7 +115,7 @@ async def chat_rest(req: ChatRequest):
     result = await loop.run_in_executor(None, router.handle, req.message)
     return {"response": result}
 
-# ── TRANSCRIBE (FIXED) ────────────────────────────────────────────────
+# ── TRANSCRIBE ────────────────────────────────────────────────────────
 @app.post("/transcribe")
 async def transcribe(audio: UploadFile = File(...)):
     try:
@@ -121,12 +124,10 @@ async def transcribe(audio: UploadFile = File(...)):
 
         contents = await audio.read()
 
-        # Save original file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
             tmp.write(contents)
             tmp_path = tmp.name
 
-        # Convert to WAV (important!)
         wav_path = tmp_path + ".wav"
         audio_segment = AudioSegment.from_file(tmp_path)
         audio_segment.export(wav_path, format="wav")
@@ -142,7 +143,6 @@ async def transcribe(audio: UploadFile = File(...)):
             )
 
         transcript = result if isinstance(result, str) else result.text
-
         os.unlink(tmp_path)
         os.unlink(wav_path)
 
@@ -159,10 +159,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
     current_websocket = websocket
-    main_loop = asyncio.get_running_loop()  # 🔥 STORE LOOP
+    main_loop = asyncio.get_running_loop()
 
     user_name = get_user_name()
-
     await websocket.send_json({
         "type": "connected",
         "user": user_name,
@@ -186,18 +185,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 if hasattr(result, '__iter__') and not isinstance(result, str):
                     full_response = ""
-
                     for token in result:
                         full_response += token
-                        await websocket.send_json({
-                            "type": "token",
-                            "text": token
-                        })
+                        await websocket.send_json({"type": "token", "text": token})
 
-                    await websocket.send_json({
-                        "type": "done",
-                        "text": full_response
-                    })
+                    await websocket.send_json({"type": "done", "text": full_response})
 
                     threading.Thread(
                         target=speech.speak,
@@ -206,11 +198,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     ).start()
 
                 else:
-                    await websocket.send_json({
-                        "type": "response",
-                        "text": str(result)
-                    })
-
+                    await websocket.send_json({"type": "response", "text": str(result)})
                     threading.Thread(
                         target=speech.speak,
                         args=(str(result),),
@@ -231,10 +219,7 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"[MARCUS] WS error: {e}")
         current_websocket = None
         try:
-            await websocket.send_json({
-                "type": "error",
-                "text": str(e)
-            })
+            await websocket.send_json({"type": "error", "text": str(e)})
         except Exception:
             pass
 
@@ -245,7 +230,6 @@ def open_browser():
 if __name__ == "__main__":
     import uvicorn
     threading.Timer(2, open_browser).start()
-
     uvicorn.run(
         app,
         host="127.0.0.1",
@@ -253,4 +237,3 @@ if __name__ == "__main__":
         log_config=None,
         access_log=False
     )
-

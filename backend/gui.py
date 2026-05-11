@@ -1,9 +1,6 @@
 """
 Marcus V.A — Modern Chat GUI with Real-Time Subtitles
 DedSec V.A  |  gui.py
-
-ChatGPT-style voice chat interface built with tkinter.
-Added: Real-time subtitle display synced with Marcus's speech.
 """
 
 import tkinter as tk
@@ -15,42 +12,52 @@ import os
 import time
 import random
 import math
+import re
 from datetime import datetime
 
 
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_UI = os.path.abspath(os.path.join(_HERE, "..", "frontend", "index.html"))
+_UI   = os.path.abspath(os.path.join(_HERE, "..", "frontend", "index.html"))
 
 # ──────────────────────────────────────────────
 #  THEME
 # ──────────────────────────────────────────────
-BG_APP      = "#0F0F0F"   # outer window
-BG_SIDEBAR  = "#161616"   # left panel
-BG_CHAT     = "#0F0F0F"   # message area
-BG_BUBBLE_A = "#1E1E1E"   # Marcus bubble
-BG_BUBBLE_U = "#4A3F9F"   # user bubble  (purple)
-BG_INPUT    = "#1A1A1A"   # input bar bg
-BG_HEADER   = "#111111"   # top bar
-BG_SUBTITLE = "#1A1A1ACC" # subtitle background (semi-transparent effect)
+BG_APP      = "#0F0F0F"
+BG_SIDEBAR  = "#161616"
+BG_CHAT     = "#0F0F0F"
+BG_BUBBLE_A = "#1A1A1A"
+BG_BUBBLE_U = "#3D3580"
+BG_INPUT    = "#1A1A1A"
+BG_HEADER   = "#111111"
+BG_CODE     = "#141414"
 
-ACCENT      = "#7C6FCD"   # purple accent
-ACCENT_HI   = "#9D91E8"   # hover accent
-GREEN       = "#1D9E75"   # online dot / status
-RED         = "#E05C5C"   # mic active
-DIM         = "#555555"   # muted text
-MID         = "#888888"   # secondary text
-LIGHT       = "#E8E8E8"   # primary text
+ACCENT      = "#7C6FCD"
+ACCENT_HI   = "#9D91E8"
+GREEN       = "#1D9E75"
+RED         = "#E05C5C"
+DIM         = "#555555"
+MID         = "#888888"
+LIGHT       = "#E8E8E8"
 WHITE       = "#FFFFFF"
+GOLD        = "#C9A84C"
+CODE_FG     = "#A8D8A8"
 
-FONT_UI     = ("Segoe UI",    11)
-FONT_MSG    = ("Segoe UI",    12)
-FONT_META   = ("Segoe UI",     9)
-FONT_TITLE  = ("Segoe UI",    13, "bold")
-FONT_SMALL  = ("Segoe UI",     9)
-FONT_BTN    = ("Segoe UI",    10)
-FONT_MONO   = ("Courier New", 10)
-FONT_SUBTITLE = ("Segoe UI", 15)  # Subtitle font
+FONT_UI     = ("Segoe UI",     11)
+FONT_MSG    = ("Segoe UI",     12)
+FONT_META   = ("Segoe UI",      9)
+FONT_TITLE  = ("Segoe UI",     13, "bold")
+FONT_SMALL  = ("Segoe UI",      9)
+FONT_BTN    = ("Segoe UI",     10)
+FONT_MONO   = ("Courier New",  10)
+FONT_SUBTITLE = ("Segoe UI",   15)
+FONT_H1     = ("Segoe UI",     16, "bold")
+FONT_H2     = ("Segoe UI",     14, "bold")
+FONT_H3     = ("Segoe UI",     12, "bold")
+FONT_BOLD   = ("Segoe UI",     12, "bold")
+FONT_ITALIC = ("Segoe UI",     12, "italic")
+FONT_CODE   = ("Courier New",  11)
+
+BUBBLE_WIDTH = 68   # chars — adjust if needed
 
 TICKER_MSGS = [
     "ENCRYPTION ACTIVE", "NODE: CHICAGO-03", "PACKET LOSS: 0.00%",
@@ -72,77 +79,183 @@ GLITCH_CHARS = "!@#$%^&*<>?/|\\█▓▒░"
 
 
 # ──────────────────────────────────────────────
+#  MARKDOWN RENDERER
+# ──────────────────────────────────────────────
+def _configure_tags(txt: tk.Text, bg: str):
+    """Set up all text tags on a Text widget for markdown rendering."""
+    txt.tag_config("h1",       font=FONT_H1,     foreground=WHITE,    spacing1=8, spacing3=4)
+    txt.tag_config("h2",       font=FONT_H2,     foreground=LIGHT,    spacing1=6, spacing3=3)
+    txt.tag_config("h3",       font=FONT_H3,     foreground=LIGHT,    spacing1=4, spacing3=2)
+    txt.tag_config("bold",     font=FONT_BOLD,   foreground=WHITE)
+    txt.tag_config("italic",   font=FONT_ITALIC, foreground=LIGHT)
+    txt.tag_config("code",     font=FONT_CODE,   foreground=CODE_FG,  background="#1E2A1E")
+    txt.tag_config("codeblock",font=FONT_CODE,   foreground=CODE_FG,  background=BG_CODE,
+                   lmargin1=12, lmargin2=12, spacing1=2, spacing3=2)
+    txt.tag_config("bullet",   font=FONT_MSG,    foreground=LIGHT,    lmargin1=8, lmargin2=20)
+    txt.tag_config("bullet_dot",font=FONT_MSG,   foreground=ACCENT)
+    txt.tag_config("numbered", font=FONT_MSG,    foreground=LIGHT,    lmargin1=8, lmargin2=28)
+    txt.tag_config("num_label",font=FONT_BOLD,   foreground=ACCENT_HI)
+    txt.tag_config("hr",       font=FONT_SMALL,  foreground=DIM,      spacing1=4, spacing3=4)
+    txt.tag_config("normal",   font=FONT_MSG,    foreground=LIGHT)
+    txt.tag_config("dim",      font=FONT_MSG,    foreground=DIM)
+    txt.tag_config("ok",       font=FONT_MSG,    foreground=GREEN)
+    txt.tag_config("hi",       font=FONT_MSG,    foreground=ACCENT_HI)
+
+
+def _insert_markdown(txt: tk.Text, text: str):
+    """Parse and insert markdown-formatted text into a tk.Text widget."""
+    lines = text.split("\n")
+    in_code = False
+    code_buf = []
+
+    def flush_code():
+        nonlocal code_buf
+        block = "\n".join(code_buf)
+        txt.insert(tk.END, block + "\n", "codeblock")
+        code_buf = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # ── Code fence ───────────────────────────
+        if line.strip().startswith("```"):
+            if not in_code:
+                in_code = True
+                code_buf = []
+            else:
+                in_code = False
+                flush_code()
+            i += 1
+            continue
+
+        if in_code:
+            code_buf.append(line)
+            i += 1
+            continue
+
+        # ── HR ───────────────────────────────────
+        if re.match(r'^[-*_]{3,}\s*$', line):
+            txt.insert(tk.END, "─" * 50 + "\n", "hr")
+            i += 1
+            continue
+
+        # ── Headings ─────────────────────────────
+        h3 = re.match(r'^###\s+(.*)', line)
+        h2 = re.match(r'^##\s+(.*)', line)
+        h1 = re.match(r'^#\s+(.*)', line)
+        if h1:
+            txt.insert(tk.END, h1.group(1) + "\n", "h1")
+            i += 1
+            continue
+        if h2:
+            txt.insert(tk.END, h2.group(1) + "\n", "h2")
+            i += 1
+            continue
+        if h3:
+            txt.insert(tk.END, h3.group(1) + "\n", "h3")
+            i += 1
+            continue
+
+        # ── Bullet list ──────────────────────────
+        bullet = re.match(r'^[\-\*\+]\s+(.*)', line)
+        if bullet:
+            txt.insert(tk.END, "  • ", "bullet_dot")
+            _insert_inline(txt, bullet.group(1), "bullet")
+            txt.insert(tk.END, "\n")
+            i += 1
+            continue
+
+        # ── Numbered list ─────────────────────────
+        numbered = re.match(r'^(\d+)\.\s+(.*)', line)
+        if numbered:
+            txt.insert(tk.END, f"  {numbered.group(1)}. ", "num_label")
+            _insert_inline(txt, numbered.group(2), "numbered")
+            txt.insert(tk.END, "\n")
+            i += 1
+            continue
+
+        # ── Blank line ───────────────────────────
+        if line.strip() == "":
+            txt.insert(tk.END, "\n")
+            i += 1
+            continue
+
+        # ── Normal paragraph line ────────────────
+        _insert_inline(txt, line, "normal")
+        txt.insert(tk.END, "\n")
+        i += 1
+
+    # flush unclosed code block
+    if in_code and code_buf:
+        flush_code()
+
+
+def _insert_inline(txt: tk.Text, text: str, base_tag: str):
+    """Handle inline markdown: **bold**, *italic*, `code`."""
+    # Pattern: **bold**, *italic*, `code`
+    pattern = re.compile(r'(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)')
+    last = 0
+    for m in pattern.finditer(text):
+        # text before match
+        if m.start() > last:
+            txt.insert(tk.END, text[last:m.start()], base_tag)
+        if m.group(0).startswith("**"):
+            txt.insert(tk.END, m.group(2), "bold")
+        elif m.group(0).startswith("*"):
+            txt.insert(tk.END, m.group(3), "italic")
+        elif m.group(0).startswith("`"):
+            txt.insert(tk.END, m.group(4), "code")
+        last = m.end()
+    if last < len(text):
+        txt.insert(tk.END, text[last:], base_tag)
+
+
+# ──────────────────────────────────────────────
 #  SUBTITLE WIDGET
 # ──────────────────────────────────────────────
 class SubtitleWidget(tk.Frame):
-    """
-    Real-time subtitle display that appears when Marcus speaks.
-    Shows streaming text with word-by-word updates.
-    """
-
     def __init__(self, parent, **kwargs):
         super().__init__(parent, bg=BG_APP, **kwargs)
         self.configure(height=80)
 
-        # Container for subtitle text
-        self.subtitle_container = tk.Frame(self, bg=BG_SUBTITLE, padx=20, pady=12)
+        self.subtitle_container = tk.Frame(self, bg="#1A1A1ACC", padx=20, pady=12)
         self.subtitle_container.pack(fill=tk.BOTH, expand=True, padx=40, pady=10)
 
-        # Subtitle label
         self.subtitle_label = tk.Label(
-            self.subtitle_container,
-            text="",
-            bg=BG_SUBTITLE,
-            fg=WHITE,
-            font=FONT_SUBTITLE,
-            wraplength=800,
-            justify=tk.CENTER
+            self.subtitle_container, text="", bg="#1A1A1A",
+            fg=WHITE, font=FONT_SUBTITLE, wraplength=800, justify=tk.CENTER
         )
         self.subtitle_label.pack(expand=True)
-
-        # Hidden by default
         self.pack_forget()
 
         self._current_text = ""
-        self._hide_timer = None
+        self._hide_timer   = None
 
     def show_subtitle(self, text: str):
-        """Display subtitle text."""
         self._current_text = text
         self.subtitle_label.config(text=text)
-
-        # Show the widget if hidden
         if not self.winfo_ismapped():
             self.pack(side=tk.BOTTOM, fill=tk.X, before=self.master.winfo_children()[-2])
-
-        # Cancel any pending hide timer
         if self._hide_timer:
             self.after_cancel(self._hide_timer)
             self._hide_timer = None
 
     def append_subtitle(self, token: str):
-        """Append text to current subtitle."""
         self._current_text += token
         self.subtitle_label.config(text=self._current_text)
-
-        # Show if hidden
         if not self.winfo_ismapped():
             self.pack(side=tk.BOTTOM, fill=tk.X, before=self.master.winfo_children()[-2])
-
-        # Cancel pending hide timer
         if self._hide_timer:
             self.after_cancel(self._hide_timer)
             self._hide_timer = None
 
     def clear_subtitle(self, delay_ms: int = 2000):
-        """Clear subtitle after delay."""
         if self._hide_timer:
             self.after_cancel(self._hide_timer)
-
         self._hide_timer = self.after(delay_ms, self._hide_subtitle)
 
     def _hide_subtitle(self):
-        """Hide the subtitle widget."""
         self._current_text = ""
         self.subtitle_label.config(text="")
         self.pack_forget()
@@ -153,8 +266,6 @@ class SubtitleWidget(tk.Frame):
 #  WAVEFORM WIDGET
 # ──────────────────────────────────────────────
 class WaveformCanvas(tk.Canvas):
-    """Animated equalizer bar — pulses when Marcus is speaking/thinking."""
-
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
         self._bars    = 32
@@ -163,11 +274,9 @@ class WaveformCanvas(tk.Canvas):
         self._targets = [1.0] * self._bars
         self.after(50, self._loop)
 
-    def activate(self):
-        self._active = True
-
+    def activate(self):   self._active = True
     def deactivate(self):
-        self._active = False
+        self._active  = False
         self._targets = [1.0] * self._bars
 
     def _loop(self):
@@ -184,38 +293,16 @@ class WaveformCanvas(tk.Canvas):
 
     def _draw(self):
         self.delete("all")
-        w = self.winfo_width()  or 400
-        h = self.winfo_height() or 36
-        mid   = h / 2
-        gap   = w / self._bars
-        bw    = max(1, gap * 0.45)
+        w   = self.winfo_width()  or 400
+        h   = self.winfo_height() or 36
+        mid = h / 2
+        gap = w / self._bars
+        bw  = max(1, gap * 0.45)
         for i, bh in enumerate(self._heights):
-            x = i * gap + gap / 2
-            # colour: bright purple when tall, dim otherwise
+            x     = i * gap + gap / 2
             ratio = bh / 28
-            if ratio > 0.6:
-                col = ACCENT_HI
-            elif ratio > 0.25:
-                col = ACCENT
-            else:
-                col = "#2A2440"
-            self.create_rectangle(
-                x - bw, mid - bh,
-                x + bw, mid + bh,
-                fill=col, outline=""
-            )
-
-
-# ──────────────────────────────────────────────
-#  ROUNDED-RECT HELPER
-# ──────────────────────────────────────────────
-def rounded_rect(canvas, x1, y1, x2, y2, r=12, **kw):
-    canvas.create_arc(x1,     y1,     x1+2*r, y1+2*r, start= 90, extent=90, style="pieslice", **kw)
-    canvas.create_arc(x2-2*r, y1,     x2,     y1+2*r, start=  0, extent=90, style="pieslice", **kw)
-    canvas.create_arc(x1,     y2-2*r, x1+2*r, y2,     start=180, extent=90, style="pieslice", **kw)
-    canvas.create_arc(x2-2*r, y2-2*r, x2,     y2,     start=270, extent=90, style="pieslice", **kw)
-    canvas.create_rectangle(x1+r, y1, x2-r, y2, **kw)
-    canvas.create_rectangle(x1, y1+r, x2, y2-r, **kw)
+            col   = ACCENT_HI if ratio > 0.6 else (ACCENT if ratio > 0.25 else "#2A2440")
+            self.create_rectangle(x-bw, mid-bh, x+bw, mid+bh, fill=col, outline="")
 
 
 # ──────────────────────────────────────────────
@@ -230,14 +317,12 @@ class MarcusGUI:
         self.root.minsize(700, 500)
         self.root.resizable(True, True)
 
-        # State
-        self._streaming   = False
-        self._mic_active  = False
-        self._cursor_job  = None
-        self._cursor_vis  = True
-        self.glitch_on    = False
-        self._msg_widgets = []   # list of (frame, text_widget) for bubbles
-        self._current_bubble = None  # text widget being streamed into
+        self._streaming      = False
+        self._mic_active     = False
+        self.glitch_on       = False
+        self._msg_widgets    = []
+        self._current_bubble = None   # tk.Text being streamed into
+        self._stream_buffer  = ""     # raw token buffer for deferred render
 
         self._build_layout()
         self.root.after(300, self._boot_sequence)
@@ -246,13 +331,11 @@ class MarcusGUI:
     #  LAYOUT
     # ──────────────────────────────────────────
     def _build_layout(self):
-        # ── Sidebar ───────────────────────────
         self.sidebar = tk.Frame(self.root, bg=BG_SIDEBAR, width=220)
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar.pack_propagate(False)
         self._build_sidebar()
 
-        # ── Main panel ────────────────────────
         main = tk.Frame(self.root, bg=BG_APP)
         main.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -260,33 +343,26 @@ class MarcusGUI:
         self._build_chat(main)
         self._build_waveform_bar(main)
 
-        # ── Subtitle Widget ───────────────────
         self.subtitle_widget = SubtitleWidget(main)
-
         self._build_input_bar(main)
 
     # ── Sidebar ───────────────────────────────
     def _build_sidebar(self):
         sb = self.sidebar
 
-        # Logo
         logo_frame = tk.Frame(sb, bg=BG_SIDEBAR)
         logo_frame.pack(fill=tk.X, padx=16, pady=(20, 8))
-
         tk.Label(logo_frame, text="◈", bg=BG_SIDEBAR, fg=ACCENT,
                  font=("Segoe UI", 20)).pack(side=tk.LEFT)
         tk.Label(logo_frame, text="  MARCUS", bg=BG_SIDEBAR, fg=LIGHT,
                  font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
-
         tk.Label(sb, text="DedSec V.A", bg=BG_SIDEBAR, fg=DIM,
                  font=FONT_SMALL).pack(anchor="w", padx=20)
 
         self._sidebar_divider(sb)
 
-        # Status card
         status_card = tk.Frame(sb, bg="#1C1C1C", padx=12, pady=10)
         status_card.pack(fill=tk.X, padx=12, pady=4)
-
         row = tk.Frame(status_card, bg="#1C1C1C")
         row.pack(fill=tk.X)
         self._dot = tk.Label(row, text="●", bg="#1C1C1C", fg="#333", font=("Segoe UI", 8))
@@ -297,16 +373,15 @@ class MarcusGUI:
 
         self._sidebar_divider(sb)
 
-        # Nav buttons
         nav_items = [
-            ("🗨  New chat",      self._clear_chat),
-            ("💾  Memory",        lambda: None),
-            ("⌨  Shortcuts",     lambda: None),
-            ("⚙  Settings",      lambda: None),
+            ("🗨  New chat",  self._clear_chat),
+            ("💾  Memory",    lambda: None),
+            ("⌨  Shortcuts", lambda: None),
+            ("⚙  Settings",  lambda: None),
         ]
         for label, cmd in nav_items:
             btn = tk.Label(sb, text=label, bg=BG_SIDEBAR, fg=MID,
-                          font=FONT_UI, cursor="hand2", anchor="w", padx=20, pady=8)
+                           font=FONT_UI, cursor="hand2", anchor="w", padx=20, pady=8)
             btn.pack(fill=tk.X)
             btn.bind("<Button-1>", lambda e, c=cmd: c())
             btn.bind("<Enter>", lambda e, w=btn: w.config(bg="#222", fg=WHITE))
@@ -314,7 +389,6 @@ class MarcusGUI:
 
         self._sidebar_divider(sb)
 
-        # Glitch button
         self.glitch_btn = tk.Label(sb, text="⚡ Glitch mode", bg=BG_SIDEBAR,
                                    fg=DIM, font=FONT_UI, cursor="hand2",
                                    anchor="w", padx=20, pady=8)
@@ -332,7 +406,6 @@ class MarcusGUI:
 
         left = tk.Frame(hdr, bg=BG_HEADER)
         left.pack(side=tk.LEFT, padx=16, pady=8)
-
         tk.Label(left, text="Marcus", bg=BG_HEADER, fg=WHITE,
                  font=FONT_TITLE).pack(side=tk.LEFT)
 
@@ -345,7 +418,6 @@ class MarcusGUI:
                                     fg=DIM, font=FONT_SMALL)
         self._hdr_status.pack(side=tk.LEFT)
 
-        # Ticker
         self.ticker = tk.Label(hdr, text="// INITIALIZING //", bg=BG_HEADER,
                                fg=DIM, font=FONT_MONO)
         self.ticker.pack(side=tk.RIGHT, padx=20)
@@ -355,19 +427,16 @@ class MarcusGUI:
         chat_container = tk.Frame(parent, bg=BG_CHAT)
         chat_container.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
 
-        canvas = tk.Canvas(chat_container, bg=BG_CHAT, highlightthickness=0)
+        canvas    = tk.Canvas(chat_container, bg=BG_CHAT, highlightthickness=0)
         scrollbar = tk.Scrollbar(chat_container, orient=tk.VERTICAL, command=canvas.yview)
         self.chat_frame = tk.Frame(canvas, bg=BG_CHAT)
 
         self.chat_frame.bind("<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-
         canvas.create_window((0, 0), window=self.chat_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
         self.chat_canvas = canvas
 
     def _scroll_bottom(self):
@@ -379,7 +448,6 @@ class MarcusGUI:
         wf_frame = tk.Frame(parent, bg=BG_APP, height=50)
         wf_frame.pack(fill=tk.X, side=tk.TOP)
         wf_frame.pack_propagate(False)
-
         self.waveform = WaveformCanvas(wf_frame, bg=BG_APP, highlightthickness=0, height=36)
         self.waveform.pack(fill=tk.BOTH, expand=True, padx=20, pady=6)
 
@@ -392,19 +460,16 @@ class MarcusGUI:
         inner = tk.Frame(bar, bg=BG_INPUT)
         inner.pack(fill=tk.BOTH, expand=True, padx=16, pady=10)
 
-        # Mic button
         self.mic_btn = tk.Label(inner, text="🎙", bg=BG_INPUT, fg=DIM,
                                 font=("Segoe UI", 16), cursor="hand2")
         self.mic_btn.pack(side=tk.LEFT, padx=(0, 8))
         self.mic_btn.bind("<Button-1>", lambda e: self._toggle_mic())
 
-        # Entry
         self.entry = tk.Entry(inner, bg="#222", fg=WHITE, font=FONT_MSG,
                               insertbackground=WHITE, relief=tk.FLAT, bd=0)
         self.entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipady=6, padx=8)
         self.entry.bind("<Return>", self._send)
 
-        # Send button
         self.send_btn = tk.Label(inner, text="➤", bg=ACCENT, fg=WHITE,
                                  font=("Segoe UI", 14, "bold"),
                                  cursor="hand2", padx=12, pady=4)
@@ -414,123 +479,117 @@ class MarcusGUI:
     # ──────────────────────────────────────────
     #  CHAT BUBBLES
     # ──────────────────────────────────────────
-    def _add_bubble(self, text: str, sender: str):
+    def _add_bubble(self, text: str, sender: str, render_markdown: bool = False):
         """
-        Creates a chat bubble.
-        sender: "user" or "marcus"
-        Returns the Text widget for streaming into.
+        Creates a chat bubble. Returns the inner tk.Text widget.
+        render_markdown=True parses the text as markdown before inserting.
         """
-        bubble_frame = tk.Frame(self.chat_frame, bg=BG_CHAT)
-        bubble_frame.pack(fill=tk.X, padx=20, pady=6)
-
         is_user = (sender == "user")
-        align = tk.E if is_user else tk.W
-        bg = BG_BUBBLE_U if is_user else BG_BUBBLE_A
+        align   = tk.E if is_user else tk.W
+        bg      = BG_BUBBLE_U if is_user else BG_BUBBLE_A
+
+        bubble_frame = tk.Frame(self.chat_frame, bg=BG_CHAT)
+        bubble_frame.pack(fill=tk.X, padx=20, pady=(4, 2))
 
         inner = tk.Frame(bubble_frame, bg=BG_CHAT)
         inner.pack(anchor=align)
 
-        # Avatar / name row
+        # ── Avatar row ───────────────────────
         meta_row = tk.Frame(inner, bg=BG_CHAT)
-        meta_row.pack(anchor=align, pady=(0, 4))
+        meta_row.pack(anchor=align, pady=(0, 3))
 
         if is_user:
             tk.Label(meta_row, text="You", bg=BG_CHAT, fg=MID,
                      font=FONT_META).pack(side=tk.RIGHT, padx=(0, 6))
             tk.Label(meta_row, text="👤", bg=BG_CHAT,
-                     font=("Segoe UI", 11)).pack(side=tk.RIGHT)
+                     font=("Segoe UI", 10)).pack(side=tk.RIGHT)
         else:
             tk.Label(meta_row, text="◈", bg=BG_CHAT, fg=ACCENT,
-                     font=("Segoe UI", 11)).pack(side=tk.LEFT)
-            tk.Label(meta_row, text="Marcus", bg=BG_CHAT, fg=MID,
-                     font=FONT_META).pack(side=tk.LEFT, padx=(6, 0))
+                     font=("Segoe UI", 10)).pack(side=tk.LEFT)
+            tk.Label(meta_row, text=" Marcus", bg=BG_CHAT, fg=MID,
+                     font=FONT_META).pack(side=tk.LEFT)
 
-        # Bubble
+        # ── Bubble body ──────────────────────
         bubble_bg = tk.Frame(inner, bg=bg, padx=14, pady=10)
         bubble_bg.pack(anchor=align)
 
-        txt = tk.Text(bubble_bg, bg=bg, fg=LIGHT, font=FONT_MSG,
-                      wrap=tk.WORD, relief=tk.FLAT, bd=0, highlightthickness=0,
-                      state=tk.DISABLED, cursor="arrow")
-        txt.pack()
+        # Left accent bar for Marcus bubbles
+        if not is_user:
+            accent_bar = tk.Frame(bubble_bg, bg=ACCENT, width=3)
+            accent_bar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 
-        # Insert text
+        txt = tk.Text(
+            bubble_bg, bg=bg, fg=LIGHT, font=FONT_MSG,
+            wrap=tk.WORD, relief=tk.FLAT, bd=0,
+            highlightthickness=0, state=tk.DISABLED,
+            cursor="arrow", width=BUBBLE_WIDTH,
+            spacing1=2, spacing2=2, spacing3=2,
+            padx=4, pady=4,
+        )
+        txt.pack(side=tk.LEFT)
+
+        _configure_tags(txt, bg)
+
         txt.config(state=tk.NORMAL)
-        txt.insert(tk.END, text)
+        if text:
+            if render_markdown and not is_user:
+                _insert_markdown(txt, text)
+            else:
+                txt.insert(tk.END, text)
         txt.config(state=tk.DISABLED)
 
         self._resize_bubble_text(txt)
         self._msg_widgets.append((bubble_frame, txt))
         self._scroll_bottom()
-
         return txt
 
     def _resize_bubble_text(self, txt_widget):
         txt_widget.update_idletasks()
         line_count = int(txt_widget.index("end-1c").split(".")[0])
-        txt_widget.config(height=line_count, width=60)
-
-    # ──────────────────────────────────────────
-    #  BOOT SEQUENCE
-    # ──────────────────────────────────────────
-    def _boot_sequence(self):
-        def run():
-            self.root.after(0, self._start_stream_bubble)
-            for line, tag in BOOT_LINES:
-                self.root.after(0, self._stream_chunk, line + "\n", tag)
-                time.sleep(0.3)
-            self.root.after(0, self._end_stream_bubble)
-            self.root.after(0, self._set_online)
-            # Greeting
-            time.sleep(0.4)
-            greeting = "Hey! I'm Marcus, your AI voice assistant.\nType below or tap 🎙 to talk. How can I help?"
-            self.root.after(0, lambda: self._add_bubble(greeting, "marcus"))
-        threading.Thread(target=run, daemon=True).start()
+        txt_widget.config(height=max(1, line_count))
 
     # ──────────────────────────────────────────
     #  STREAMING BUBBLE
     # ──────────────────────────────────────────
     def _start_stream_bubble(self):
-        """Open a new Marcus bubble for streaming content into."""
-        self._current_bubble = self._add_bubble("", "marcus")
-        self._streaming = True
+        self._stream_buffer  = ""
+        self._current_bubble = self._add_bubble("", "marcus", render_markdown=False)
+        self._streaming      = True
         self.waveform.activate()
-
-        # Clear subtitle and prepare for new text
         self.subtitle_widget.show_subtitle("")
 
     def _stream_chunk(self, chunk: str, tag: str = ""):
-        """Append text to the currently open streaming bubble AND subtitle."""
+        """Append raw token to buffer and re-render the bubble with markdown."""
         if self._current_bubble is None:
             return
+
         txt = self._current_bubble
-        txt.config(state=tk.NORMAL)
-        if tag == "ok":
-            txt.tag_config("ok", foreground="#1D9E75")
-            txt.insert(tk.END, chunk, "ok")
-        elif tag == "hi":
-            txt.tag_config("hi", foreground=ACCENT_HI)
-            txt.insert(tk.END, chunk, "hi")
-        elif tag == "dim":
-            txt.tag_config("dim", foreground=DIM)
-            txt.insert(tk.END, chunk, "dim")
+
+        if tag in ("ok", "hi", "dim"):
+            # Boot sequence — plain tagged text, no markdown
+            txt.config(state=tk.NORMAL)
+            txt.tag_config(tag, foreground={"ok": GREEN, "hi": ACCENT_HI, "dim": DIM}[tag])
+            txt.insert(tk.END, chunk, tag)
+            txt.config(state=tk.DISABLED)
         else:
-            txt.insert(tk.END, chunk)
-            # Also update subtitle in real-time (only for normal text, not boot tags)
+            # Normal streaming: accumulate then re-render markdown
+            self._stream_buffer += chunk
+            txt.config(state=tk.NORMAL)
+            txt.delete("1.0", tk.END)
+            _insert_markdown(txt, self._stream_buffer)
+            txt.config(state=tk.DISABLED)
             if not tag:
                 self.subtitle_widget.append_subtitle(chunk)
 
-        txt.config(state=tk.DISABLED)
         self._resize_bubble_text(txt)
         self._scroll_bottom()
 
     def _end_stream_bubble(self):
         self._current_bubble = None
-        self._streaming = False
+        self._streaming      = False
+        self._stream_buffer  = ""
         self.waveform.deactivate()
         self.send_btn.config(bg=ACCENT, fg=WHITE)
-
-        # Clear subtitle after 2 seconds
         self.subtitle_widget.clear_subtitle(delay_ms=2000)
 
     # ──────────────────────────────────────────
@@ -575,9 +634,8 @@ class MarcusGUI:
             from backend.marcus.core.router import Router
 
             memory = Memory()
-            ai = AI(memory=memory)
+            ai     = AI(memory=memory)
             router = Router(ai=ai, memory=memory)
-
             result = router.handle_stream(cmd)
 
             if hasattr(result, '__iter__') and not isinstance(result, str):
@@ -615,13 +673,12 @@ class MarcusGUI:
         try:
             import speech_recognition as sr
             r = sr.Recognizer()
-            r.energy_threshold = 400
+            r.energy_threshold         = 400
             r.dynamic_energy_threshold = False
             with sr.Microphone(device_index=2) as source:
                 r.adjust_for_ambient_noise(source, duration=0.5)
                 audio = r.listen(source, timeout=6, phrase_time_limit=15)
 
-            # Groq Whisper first
             try:
                 import io, wave
                 from groq import Groq
@@ -668,15 +725,32 @@ class MarcusGUI:
         self.root.after(500, self._animate_ticker)
 
     # ──────────────────────────────────────────
-    #  CLEAR CHAT
+    #  STREAMING BUBBLE — BOOT
+    # ──────────────────────────────────────────
+    def _boot_sequence(self):
+        def run():
+            self.root.after(0, self._start_stream_bubble)
+            for line, tag in BOOT_LINES:
+                self.root.after(0, self._stream_chunk, line + "\n", tag)
+                time.sleep(0.3)
+            self.root.after(0, self._end_stream_bubble)
+            self.root.after(0, self._set_online)
+            time.sleep(0.4)
+            greeting = (
+                "Hey — I'm **Marcus**, your DedSec V.A.\n\n"
+                "Type below or tap 🎙 to talk.\n\n"
+                "How can I help?"
+            )
+            self.root.after(0, lambda: self._add_bubble(greeting, "marcus", render_markdown=True))
+        threading.Thread(target=run, daemon=True).start()
+
+    # ──────────────────────────────────────────
+    #  CLEAR / GLITCH / TICKER
     # ──────────────────────────────────────────
     def _clear_chat(self):
         for w in self.chat_frame.winfo_children():
             w.destroy()
 
-    # ──────────────────────────────────────────
-    #  GLITCH
-    # ──────────────────────────────────────────
     def _toggle_glitch(self):
         self.glitch_on = not self.glitch_on
         self.glitch_btn.config(fg=ACCENT if self.glitch_on else DIM)
@@ -690,9 +764,6 @@ class MarcusGUI:
         self._add_bubble(g, "marcus")
         self.root.after(random.randint(60, 200), self._do_glitch)
 
-    # ──────────────────────────────────────────
-    #  TICKER
-    # ──────────────────────────────────────────
     def _animate_ticker(self):
         self.ticker.config(text=f"// {random.choice(TICKER_MSGS)} //")
         self.root.after(3500, self._animate_ticker)

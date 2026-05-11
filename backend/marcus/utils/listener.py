@@ -9,9 +9,6 @@ import speech_recognition as sr
 from groq import Groq
 from dotenv import load_dotenv
 
-for i, name in enumerate(sr.Microphone.list_microphone_names()):
-    print(f"[{i}] {name}")
-
 load_dotenv()
 
 WAKE_WORDS = [
@@ -21,19 +18,20 @@ WAKE_WORDS = [
     "hey marquis", "markets", "hey markets",
 ]
 
-WAKE_RESPONSES     = ["Yeah?", "What's up?", "Go ahead.", "I'm here.", "Talk to me.", "Mm?"]
-THINKING_FILLERS   = ["Mm, one sec.", "Let me think.", "Yeah, hold on.", "Give me a second.", "On it.", "Right."]
-IDLE_CHECKINS      = ["You still there?", "Still with me?", "Did you need something else?"]
-GOODBYE_RESPONSES  = ["Later.", "Got it, going quiet.", "I'll be around.", "Alright, stepping back."]
-BARGE_IN_ACK       = ["Sure, go ahead.", "Yeah?", "What's up?", "I'm listening."]
+WAKE_RESPONSES   = ["Yeah?", "What's up?", "Go ahead.", "I'm here.", "Talk to me.", "Mm?"]
+THINKING_FILLERS = ["Mm, one sec.", "Let me think.", "Yeah, hold on.", "Give me a second.", "On it.", "Right."]
+IDLE_CHECKINS    = ["You still there?", "Still with me?", "Did you need something else?"]
+GOODBYE_RESPONSES= ["Later.", "Got it, going quiet.", "I'll be around.", "Alright, stepping back."]
+BARGE_IN_ACK     = ["Sure, go ahead.", "Yeah?", "What's up?", "I'm listening."]
 
-
-BARGE_IN_RMS     = 800    # tune: run calibration below if unsure
+BARGE_IN_RMS     = 800
 FILLER_MIN_DELAY = 0.8
+
 
 def get_mic():
     names = sr.Microphone.list_microphone_names()
     for i, name in enumerate(names):
+        print(f"[{i}] {name}")
         if "jlab" in name.lower() and "headset" in name.lower():
             return i
     return 0
@@ -47,33 +45,50 @@ class Listener:
         self.speech = speech
         self.recognizer = sr.Recognizer()
 
+        # Calibrate ONCE at startup — don't touch energy_threshold after this
         self.recognizer.pause_threshold          = 0.6
         self.recognizer.non_speaking_duration    = 0.4
-        self.recognizer.energy_threshold         = 550
-        self.recognizer.dynamic_energy_threshold = False
+        self.recognizer.dynamic_energy_threshold = False  # keep fixed after calibration
+
+        self._calibrated = False  # will calibrate on first run
 
         self.groq = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
         self._barge_in_active = False
         self._barged          = False
 
-        # import pyaudio once — used only by the barge-in monitor
         try:
             import pyaudio
             self._pa = pyaudio.PyAudio()
         except ImportError:
             print("[MARCUS] WARNING: pyaudio not installed. Barge-in disabled.")
-            print("[MARCUS] Run:  pip install pyaudio")
             self._pa = None
 
+    # ── Calibrate once ────────────────────────────────────────────────────────
+
+    def _calibrate(self):
+        if self._calibrated:
+            return
+        print("[MARCUS] Calibrating mic, please be quiet...")
+        try:
+            with sr.Microphone(device_index=MIC_INDEX) as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=2.0)
+            # Bump up slightly so ambient noise doesn't false-trigger
+            self.recognizer.energy_threshold = max(
+                self.recognizer.energy_threshold * 1.2, 300
+            )
+            print(f"[MARCUS] Energy threshold set to: {self.recognizer.energy_threshold:.0f}")
+            self._calibrated = True
+        except Exception as e:
+            print(f"[MARCUS] Calibration failed: {e}. Using default threshold 400.")
+            self.recognizer.energy_threshold = 400
+            self._calibrated = True
+
     # ── Barge-in monitor ──────────────────────────────────────────────────────
-    # Opens its OWN independent PyAudio stream on the same mic.
-    # This does NOT conflict with speech_recognition's stream because
-    # PyAudio can open multiple input streams on the same device simultaneously.
 
     def _start_barge_in_monitor(self):
         if self._pa is None:
-            return  # pyaudio not available, skip
+            return
 
         self._barge_in_active = True
         self._barged = False
@@ -90,7 +105,6 @@ class Listener:
                     input_device_index=MIC_INDEX,
                     frames_per_buffer=512,
                 )
-
                 while self._barge_in_active:
                     try:
                         chunk = stream.read(512, exception_on_overflow=False)
@@ -98,8 +112,7 @@ class Listener:
                         time.sleep(0.01)
                         continue
 
-                    rms = audioop.rms(chunk, 2)  # 2 bytes = paInt16
-
+                    rms = audioop.rms(chunk, 2)
                     if rms > BARGE_IN_RMS and self._barge_in_active:
                         if self.speech.is_speaking:
                             print(f"\n[MARCUS] Barge-in (RMS {rms}). Stopping.")
@@ -146,25 +159,21 @@ class Listener:
     # ── Wake word loop ────────────────────────────────────────────────────────
 
     def start_wake_word_loop(self):
-        self.recognizer.energy_threshold = 600
-        print(f"[MARCUS] Energy threshold: {self.recognizer.energy_threshold:.0f}")
-        print("[MARCUS] Ready. Say 'Hey Marcus' to activate.\n")
+        self._calibrate()
+        print(f"[MARCUS] Ready. Say 'Hey Marcus' to activate.\n")
 
         while True:
             try:
-                audio = self._listen_once(timeout=None, phrase_limit=4)
+                audio = self._listen_once(timeout=None, phrase_limit=5)
                 if audio is None:
                     continue
 
                 duration = len(audio.get_raw_data()) / (audio.sample_rate * audio.sample_width)
-                if duration < 0.8:
+                if duration < 0.4:  # was 0.8 — too aggressive, killed short wake words
                     continue
 
                 text = self._transcribe(audio)
                 if text is None:
-                    continue
-
-                if len(text.split()) < 2 and not any(w == text.lower().strip() for w in ["marcus", "markus"]):
                     continue
 
                 print(f"[HEARD] {text}")
@@ -205,7 +214,7 @@ class Listener:
                 continue
 
             duration = len(audio.get_raw_data()) / (audio.sample_rate * audio.sample_width)
-            if duration < 0.8:
+            if duration < 0.4:
                 continue
 
             text = self._transcribe(audio)
@@ -224,7 +233,6 @@ class Listener:
                 print("[MARCUS] Back to wake word mode.\n")
                 return
 
-            # ── Fetch + filler in parallel ────────────────────────────────────
             response_container = [None]
             response_ready     = threading.Event()
 
@@ -260,7 +268,7 @@ class Listener:
     def _listen_once(self, timeout=5, phrase_limit=10):
         try:
             with sr.Microphone(device_index=MIC_INDEX) as source:
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.3)
+                # NO adjust_for_ambient_noise here — calibrated once at startup
                 audio = self.recognizer.listen(
                     source, timeout=timeout, phrase_time_limit=phrase_limit
                 )
@@ -310,9 +318,7 @@ class Listener:
             if text.lower().strip(".?,!") in HALLUCINATIONS:
                 return None
 
-            if len(text.split()) == 1 and text.lower().strip(".,!?") not in ["marcus", "markus"]:
-                return None
-
+            # Removed the 1-word filter — it was blocking single-word wake words
             return text
 
         except Exception as e:
@@ -339,7 +345,7 @@ class Listener:
 
 def DEBUG_ON():
     try:
-        from backend.marcus.config import DEBUG  # FIXED: correct import path
+        from backend.marcus.config import DEBUG
         return DEBUG
     except Exception:
         return False
